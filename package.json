@@ -1,0 +1,49 @@
+{
+  "name": "dodoco-wave",
+  "version": "2.1.0",
+  "description": "DODOCO WAVE - Um jogo de ritmo incrível",
+  "author": "Nick <nickito.com>",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.dodoco.wave",
+    "productName": "Dodoco Wave",
+    "publish": {
+      "provider": "github",
+      "owner": "nickhexenzirkel",
+      "repo": "dodocowave"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "renderer/images/DodocoWave.ico"
+    },
+    "extraResources": [
+      "yt-dlp.exe",
+      "DodocoWave.ico"
+    ],
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "node_modules/**/*",
+      "!dist/**/*"
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.3",
+    "yt-dlp-wrap": "^2.3.12"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "publish": {
+  "provider": "github",
+  "owner": "nickhexenzirkel",
+  "repo": "dodocowave",
+  "releaseType": "release"
+  }
+}
