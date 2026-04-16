@@ -50,7 +50,7 @@ function setupAutoUpdater() {
 
 function createWindow() {
   const iconPath = path.join(__dirname, 'renderer', 'images', 'DodocoWave.ico');
-  
+
   mainWindow = new BrowserWindow({
     width: 1100, height: 750,
     show: false,
@@ -62,29 +62,32 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false,  // FIX: permite iframes externos (YouTube) a partir de file://
+      sandbox: true,        // Renderer roda em sandbox do Chromium
+      webSecurity: true,    // Mantém same-origin policy ativa
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
     }
   });
 
-  // ─── FIX: Esconde o User-Agent do Electron para o YouTube não bloquear o embed ───
+  // ─── FIX: User-Agent mais genérico para o YouTube não bloquear requests do yt-dlp ───
   mainWindow.webContents.session.setUserAgent(
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
   );
 
-  // ─── FIX: Remove headers do YouTube que bloqueiam embedding em iframe ───
-  mainWindow.webContents.session.webRequest.onHeadersReceived(
-    { urls: ['*://*.youtube.com/*', '*://*.googlevideo.com/*', '*://*.ytimg.com/*'] },
-    (details, callback) => {
-      const headers = Object.assign({}, details.responseHeaders);
-      delete headers['x-frame-options'];
-      delete headers['X-Frame-Options'];
-      delete headers['content-security-policy'];
-      delete headers['Content-Security-Policy'];
-      delete headers['content-security-policy-report-only'];
-      delete headers['Content-Security-Policy-Report-Only'];
-      callback({ responseHeaders: headers });
-    }
-  );
+  // ─── HARDENING: bloqueia popups e navegação para fora do app ───
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // Só permite navegação dentro do bundle local (file://) carregado pelo app
+    if (!url.startsWith('file://')) event.preventDefault();
+  });
+  mainWindow.webContents.on('will-redirect', (event, url) => {
+    if (!url.startsWith('file://')) event.preventDefault();
+  });
+
+  // ─── HARDENING: nega permissões sensíveis (camera, mic, geoloc, notificações, etc.) ───
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => {
+    callback(false);
+  });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
@@ -142,8 +145,30 @@ function fetchBuffer(url) {
   });
 }
 
+// ─── INPUT VALIDATION: aceita apenas URLs do YouTube ───
+// Protege contra SSRF / uso indevido do yt-dlp para endpoints arbitrários.
+function isValidYouTubeUrl(raw) {
+  if (typeof raw !== 'string') return false;
+  const s = raw.trim();
+  if (s.length === 0 || s.length > 2048) return false;
+  let u;
+  try { u = new URL(s); } catch { return false; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+  const host = u.hostname.toLowerCase();
+  const allowed = [
+    'youtube.com', 'www.youtube.com', 'm.youtube.com',
+    'music.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com',
+    'youtu.be'
+  ];
+  return allowed.includes(host);
+}
+
 // ─── IPC: YOUTUBE AUDIO via yt-dlp-wrap ───
 ipcMain.handle('get-yt-audio', async (event, ytUrl) => {
+  if (!isValidYouTubeUrl(ytUrl)) {
+    throw new Error('URL invalida: forneca um link do YouTube (youtube.com ou youtu.be).');
+  }
+
   let YTDlpWrap;
   try {
     YTDlpWrap = require('yt-dlp-wrap').default || require('yt-dlp-wrap');
@@ -181,7 +206,6 @@ ipcMain.handle('get-yt-audio', async (event, ytUrl) => {
       '--no-warnings',
       '--no-playlist',
       '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
-      '--no-check-certificate',
     ]);
     info = JSON.parse(infoJson);
   } catch(e) {
@@ -211,7 +235,6 @@ ipcMain.handle('get-yt-audio', async (event, ytUrl) => {
         '-o', tmpFile,
         '--no-playlist',
         '--no-warnings',
-        '--no-check-certificate',
       ]);
       const tmpDir = os.tmpdir();
       const files  = fs.readdirSync(tmpDir).filter(f => f.startsWith('dw_'));
@@ -236,7 +259,6 @@ ipcMain.handle('get-yt-audio', async (event, ytUrl) => {
       '--no-warnings',
       '--no-playlist',
       '-f', 'bestvideo[height<=360][ext=mp4]/bestvideo[height<=480][ext=mp4]/bestvideo[height<=360]/bestvideo[height<=480]/worst[ext=mp4]/worst',
-      '--no-check-certificate',
     ]);
     const videoInfo = JSON.parse(videoInfoJson);
     videoUrl = videoInfo.url || null;

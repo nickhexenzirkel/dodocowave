@@ -3,6 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<!--
+  Content-Security-Policy (defesa em profundidade contra XSS).
+  O app e 100% offline: so carrega a propria HTML/CSS/JS (inline) e
+  recursos publicos do YouTube / Google Fonts para thumbnails e fontes.
+  'unsafe-inline' e necessario porque todo o JS/CSS do jogo esta embutido.
+-->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' 'unsafe-inline';
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src  'self' https://fonts.gstatic.com data:;
+  img-src   'self' data: blob: https://i.ytimg.com https://*.ytimg.com https://img.youtube.com;
+  media-src 'self' blob: https://*.googlevideo.com;
+  connect-src 'self' data: blob:;
+  frame-src  'none';
+  object-src 'none';
+  base-uri   'self';
+  form-action 'none';
+">
 <title>DODOCO WAVE</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
 <style>
