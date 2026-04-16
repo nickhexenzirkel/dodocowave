@@ -8,6 +8,25 @@ const os    = require('os');
 
 let mainWindow;
 
+// ─── URL VALIDATION ───
+// Restrict the get-yt-audio IPC handler to real YouTube URLs so a compromised
+// renderer (or a malicious clipboard paste) can't turn it into an arbitrary
+// fetch primitive via yt-dlp's non-YouTube extractors.
+const ALLOWED_YT_HOSTS = new Set([
+  'www.youtube.com',
+  'youtube.com',
+  'm.youtube.com',
+  'music.youtube.com',
+  'youtu.be',
+]);
+function isAllowedYouTubeUrl(raw) {
+  if (typeof raw !== 'string' || raw.length > 2048) return false;
+  let u;
+  try { u = new URL(raw); } catch (e) { return false; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+  return ALLOWED_YT_HOSTS.has(u.hostname.toLowerCase());
+}
+
 // ─── AUTO UPDATER ───
 function setupAutoUpdater() {
   if (!app.isPackaged) return; // Não verifica update em desenvolvimento
@@ -62,7 +81,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: false,  // FIX: permite iframes externos (YouTube) a partir de file://
+      sandbox: true,       // Hardening: renderer runs in OS sandbox; preload only uses contextBridge/ipcRenderer
+      webSecurity: false,  // Permite iframes externos (YouTube) a partir de file://. TODO: revisar e tentar `true`.
     }
   });
 
@@ -71,17 +91,15 @@ function createWindow() {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
   );
 
-  // ─── FIX: Remove headers do YouTube que bloqueiam embedding em iframe ───
+  // ─── FIX: Remove apenas X-Frame-Options do YouTube para permitir o embed. ───
+  // Mantém o Content-Security-Policy do YouTube intacto para não enfraquecer as
+  // proteções do próprio player embedado.
   mainWindow.webContents.session.webRequest.onHeadersReceived(
     { urls: ['*://*.youtube.com/*', '*://*.googlevideo.com/*', '*://*.ytimg.com/*'] },
     (details, callback) => {
       const headers = Object.assign({}, details.responseHeaders);
       delete headers['x-frame-options'];
       delete headers['X-Frame-Options'];
-      delete headers['content-security-policy'];
-      delete headers['Content-Security-Policy'];
-      delete headers['content-security-policy-report-only'];
-      delete headers['Content-Security-Policy-Report-Only'];
       callback({ responseHeaders: headers });
     }
   );
@@ -144,6 +162,10 @@ function fetchBuffer(url) {
 
 // ─── IPC: YOUTUBE AUDIO via yt-dlp-wrap ───
 ipcMain.handle('get-yt-audio', async (event, ytUrl) => {
+  if (!isAllowedYouTubeUrl(ytUrl)) {
+    throw new Error('URL invalida. Apenas links do YouTube sao suportados.');
+  }
+
   let YTDlpWrap;
   try {
     YTDlpWrap = require('yt-dlp-wrap').default || require('yt-dlp-wrap');
@@ -181,7 +203,6 @@ ipcMain.handle('get-yt-audio', async (event, ytUrl) => {
       '--no-warnings',
       '--no-playlist',
       '-f', 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
-      '--no-check-certificate',
     ]);
     info = JSON.parse(infoJson);
   } catch(e) {
@@ -211,7 +232,6 @@ ipcMain.handle('get-yt-audio', async (event, ytUrl) => {
         '-o', tmpFile,
         '--no-playlist',
         '--no-warnings',
-        '--no-check-certificate',
       ]);
       const tmpDir = os.tmpdir();
       const files  = fs.readdirSync(tmpDir).filter(f => f.startsWith('dw_'));
@@ -236,7 +256,6 @@ ipcMain.handle('get-yt-audio', async (event, ytUrl) => {
       '--no-warnings',
       '--no-playlist',
       '-f', 'bestvideo[height<=360][ext=mp4]/bestvideo[height<=480][ext=mp4]/bestvideo[height<=360]/bestvideo[height<=480]/worst[ext=mp4]/worst',
-      '--no-check-certificate',
     ]);
     const videoInfo = JSON.parse(videoInfoJson);
     videoUrl = videoInfo.url || null;

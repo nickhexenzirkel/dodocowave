@@ -37,8 +37,8 @@
     "yt-dlp-wrap": "^2.3.12"
   },
   "devDependencies": {
-    "electron": "^31.0.0",
-    "electron-builder": "^24.13.3"
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
   },
   "publish": {
   "provider": "github",
